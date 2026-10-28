@@ -1,0 +1,24 @@
+# Perfil "openai": se activa con SPRING_PROFILES_ACTIVE=openai
+# Requiere OPENAI_API_KEY con saldo.
+# OJO: al cambiar de proveedor cambian las dimensiones del embedding (1024 → 1536)
+# y los vectores de un modelo no sirven para otro. Si antes corriste con Ollama,
+# arranca UNA vez con RECREAR_TABLA_VECTORIAL=true para recrear la tabla; la
+# ingesta al arrancar la vuelve a llenar.
+spring:
+  ai:
+    model:
+      chat: openai
+      embedding: openai
+    openai:
+      api-key: ${OPENAI_API_KEY}
+      chat:
+        options:
+          model: ${OPENAI_CHAT_MODEL:gpt-4o-mini}
+          temperature: 0.2
+      embedding:
+        options:
+          model: ${OPENAI_EMBEDDING_MODEL:text-embedding-3-small}
+    vectorstore:
+      pgvector:
+        dimensions: 1536
+        remove-existing-vector-store-table: ${RECREAR_TABLA_VECTORIAL:false}

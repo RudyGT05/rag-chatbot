@@ -1,0 +1,96 @@
+# =============================================================================
+# chatbot-service — configuración
+# Regla: ${VARIABLE:default}. La variable de entorno gana; el default es solo
+# para desarrollo local. Para cambiar de BD de prueba a la real, solo se cambian
+# variables de entorno (MONOLITO_DB_URL, etc.), nunca el código.
+# =============================================================================
+server:
+  port: ${SERVER_PORT:8082}
+  error:
+    include-stacktrace: never      # nunca devolver el stack trace al cliente
+
+spring:
+  application:
+    name: chatbot-service
+
+  # --- BD PROPIA del chatbot: Postgres + pgvector (NO es la del monolito) ---
+  datasource:
+    url: ${VECTOR_DB_URL:jdbc:postgresql://localhost:5433/chatbot}
+    username: ${VECTOR_DB_USERNAME:chatbot}
+    password: ${VECTOR_DB_PASSWORD:chatbot}
+
+  ai:
+    # Qué proveedor usar. Ollama por defecto (local, gratis).
+    # Para OpenAI: activar el perfil "openai" (SPRING_PROFILES_ACTIVE=openai).
+    model:
+      chat: ${AI_CHAT_PROVIDER:ollama}
+      embedding: ${AI_EMBEDDING_PROVIDER:ollama}
+      # Modelos que no usamos: se apagan para que no pidan configuración.
+      image: none
+      moderation: none
+      audio:
+        speech: none
+        transcription: none
+
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      init:
+        pull-model-strategy: when_missing   # descarga los modelos la primera vez
+        timeout: 20m
+        max-retries: 1
+      chat:
+        options:
+          model: ${OLLAMA_CHAT_MODEL:qwen2.5:3b}
+          temperature: 0.2                  # bajo = respuestas más apegadas al contexto
+      embedding:
+        options:
+          model: ${OLLAMA_EMBEDDING_MODEL:bge-m3}
+
+    openai:
+      # Default ficticio solo para que arranque con Ollama; con el perfil openai
+      # se debe definir la variable OPENAI_API_KEY de verdad.
+      api-key: ${OPENAI_API_KEY:sin-configurar}
+
+    vectorstore:
+      pgvector:
+        initialize-schema: true             # crea la extensión y la tabla si no existen
+        schema-name: public
+        table-name: conocimiento_vectorial
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+        dimensions: ${EMBEDDING_DIMENSIONS:1024}   # bge-m3 = 1024 · text-embedding-3-small = 1536
+
+# --- BD del MONOLITO (MySQL) — solo lectura ---
+# Con enabled=false el chatbot funciona solo con el FAQ.
+# Fuera de Docker (mvn spring-boot:run) el MySQL de prueba está en el puerto 3307.
+monolito:
+  enabled: ${MONOLITO_ENABLED:true}
+  datasource:
+    url: ${MONOLITO_DB_URL:jdbc:mysql://localhost:3307/oficina_agua?allowPublicKeyRetrieval=true}
+    username: ${MONOLITO_DB_USERNAME:chatbot_ro}
+    password: ${MONOLITO_DB_PASSWORD:chatbot_ro}
+
+# --- Comportamiento del chatbot ---
+chatbot:
+  rag:
+    top-k: 4                      # cuántos fragmentos se mandan al LLM
+    similarity-threshold: 0.35    # 0..1 — por debajo de esto el fragmento no se usa
+    margen-relativo: 0.05         # solo fragmentos a menos de 0.05 del mejor (evita mezclar temas)
+  ingesta:
+    al-iniciar: true              # reingesta automática al arrancar
+  rate-limit:
+    preguntas-por-minuto: ${RATE_LIMIT_POR_MINUTO:10}
+
+springdoc:
+  swagger-ui:
+    url: /openapi/chatbot-api.yaml   # Swagger UI muestra NUESTRO contrato, no uno inferido
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+logging:
+  level:
+    gt.edu.umg.desarrolloweb.chatbot: INFO

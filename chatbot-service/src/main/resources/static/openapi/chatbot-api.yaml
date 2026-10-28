@@ -1,0 +1,226 @@
+# =============================================================================
+# Chatbot con RAG — Contrato OpenAPI (Feature 2, Fase 2 · Oficina del Agua)
+# -----------------------------------------------------------------------------
+# Contract-first: este YAML es la fuente de verdad. openapi-generator-maven-plugin
+# genera a partir de él las interfaces ChatApi / IngestaApi y los DTOs (*Dto).
+# Los controllers solo IMPLEMENTAN esas interfaces.
+#
+# Quién consume este API: el BFF en Next.js (nunca el navegador directamente).
+# El BFF reenvía la IP real del usuario en el header X-Forwarded-For para que
+# el rate limit sea por usuario y no por el servidor de Next.js.
+# =============================================================================
+openapi: 3.0.3
+
+info:
+  title: Chatbot RAG API
+  version: 1.0.0
+  description: |
+    Microservicio del chatbot de la página pública de la Oficina del Agua.
+
+    **Cómo responde (RAG):**
+    1. Convierte la pregunta en un embedding.
+    2. Busca en pgvector los fragmentos de conocimiento más parecidos
+       (FAQ propio + datos públicos leídos del monolito en modo solo lectura).
+    3. Arma un prompt con esos fragmentos y se lo envía al LLM.
+    4. Devuelve la respuesta y los fragmentos usados (`sources`).
+
+    **Privacidad:** el chatbot es público y sin login. Nunca contiene datos de
+    clientes, lecturas ni pagos. Para un estado de cuenta se usa la Consulta
+    Pública (Feature 1).
+
+servers:
+  - url: http://localhost:8082
+    description: Ejecución local (mvn spring-boot:run o Docker Compose)
+
+# Página pública: sin autenticación. La protección es el rate limit por IP.
+security: []
+
+tags:
+  - name: Chat
+    description: Preguntas al asistente virtual
+  - name: Ingesta
+    description: Carga del conocimiento en la base vectorial
+
+paths:
+  /api/v1/chat:
+    post:
+      tags: [Chat]
+      operationId: enviarPregunta
+      summary: Envía una pregunta al chatbot y devuelve la respuesta basada en RAG
+      description: |
+        Rate limit por IP. El BFF de Next.js debe enviar la IP real del usuario
+        en el header `X-Forwarded-For`; si no viene, se usa la IP de la conexión.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatRequest'
+            examples:
+              tarifa:
+                summary: Pregunta sobre tarifas
+                value:
+                  question: ¿Cuánto cuesta la media paja de agua?
+      responses:
+        '200':
+          description: Respuesta generada a partir del conocimiento de la Oficina del Agua
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatResponse'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/ingest:
+    post:
+      tags: [Ingesta]
+      operationId: reingestarConocimiento
+      summary: Vuelve a cargar el FAQ y los datos públicos del monolito en pgvector
+      description: |
+        Borra los fragmentos existentes y los regenera. Se ejecuta también al
+        arrancar el servicio. Útil cuando cambia una tarifa en el monolito.
+        No lo expone el BFF: es de uso interno (Swagger UI / curl).
+      responses:
+        '200':
+          description: Ingesta completada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IngestResult'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+components:
+  headers:
+    RetryAfter:
+      description: Segundos que el cliente debe esperar antes de reintentar.
+      schema:
+        type: integer
+        minimum: 1
+
+  responses:
+    ValidationError:
+      description: La solicitud no cumple el contrato (campos faltantes o fuera de rango)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: VALIDATION_ERROR
+            message: La solicitud no es válida
+            details:
+              - 'question: el tamaño debe estar entre 3 y 500'
+    TooManyRequests:
+      description: Se superó el límite de preguntas por minuto para esta IP
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: RATE_LIMITED
+            message: Demasiadas preguntas. Intenta de nuevo en unos segundos.
+            details: []
+    ServiceUnavailable:
+      description: El proveedor de LLM o de embeddings no respondió
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: LLM_UNAVAILABLE
+            message: El asistente no está disponible en este momento.
+            details: []
+    InternalError:
+      description: Error inesperado. El detalle técnico solo queda en el log.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            code: INTERNAL_ERROR
+            message: Ocurrió un error inesperado.
+            details: []
+
+  schemas:
+    ChatRequest:
+      type: object
+      required: [question]
+      properties:
+        question:
+          type: string
+          minLength: 3
+          maxLength: 500
+          description: Pregunta del usuario en lenguaje natural.
+
+    ChatResponse:
+      type: object
+      required: [answer, sources]
+      properties:
+        answer:
+          type: string
+          description: Respuesta del asistente.
+        sources:
+          type: array
+          description: Fragmentos de conocimiento usados para responder.
+          items:
+            $ref: '#/components/schemas/Source'
+
+    Source:
+      type: object
+      required: [title, origin, snippet]
+      properties:
+        title:
+          type: string
+          example: Pagos — ¿Dónde puedo pagar?
+        origin:
+          type: string
+          description: De dónde salió el fragmento (faq o monolito).
+          example: faq
+        snippet:
+          type: string
+          description: Primeros caracteres del fragmento.
+        score:
+          type: number
+          format: double
+          description: Similitud con la pregunta (0 a 1).
+
+    IngestResult:
+      type: object
+      required: [faqChunks, monolitoChunks, durationMs]
+      properties:
+        faqChunks:
+          type: integer
+          description: Fragmentos cargados desde los archivos FAQ.
+        monolitoChunks:
+          type: integer
+          description: Fragmentos cargados desde la BD del monolito (0 si está desactivado).
+        durationMs:
+          type: integer
+          format: int64
+
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          description: Código estable para que el cliente decida qué hacer.
+          example: VALIDATION_ERROR
+        message:
+          type: string
+          description: Mensaje legible, sin detalles técnicos.
+        details:
+          type: array
+          items:
+            type: string

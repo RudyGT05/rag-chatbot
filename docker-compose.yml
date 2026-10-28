@@ -1,0 +1,100 @@
+# =============================================================================
+# Feature 2 — Chatbot con RAG · Docker Compose (local)
+# Después se integra al docker-compose.yml único del equipo.
+#
+#   docker compose up -d --build                     ← todo
+#   docker compose up -d postgres-vector ollama mysql-monolito  ← solo infraestructura (para desarrollar con mvn)
+# =============================================================================
+services:
+
+  # BD PROPIA del chatbot: Postgres con la extensión pgvector.
+  # Nueva y separada: NO es la base de datos del monolito.
+  postgres-vector:
+    image: pgvector/pgvector:pg16
+    container_name: chatbot-postgres-vector
+    environment:
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: chatbot
+      POSTGRES_PASSWORD: chatbot
+    ports:
+      - "5433:5432"          # 5433 en tu PC para no chocar con otro Postgres
+    volumes:
+      - pgvector-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatbot -d chatbot"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # LLM y embeddings locales. La primera vez descarga los modelos (~3 GB).
+  ollama:
+    image: ollama/ollama:0.9.6
+    container_name: chatbot-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama    # los modelos se guardan aquí y no se vuelven a bajar
+
+  # MySQL de PRUEBA: réplica de la estructura del monolito + datos ficticios.
+  # Los .sql de ./db se ejecutan en orden alfabético SOLO la primera vez que se
+  # crea el volumen (01-estructura, 02-seed-data, 99-usuario-chatbot).
+  # Para la BD REAL se cambian MONOLITO_DB_URL/USERNAME/PASSWORD en el .env.
+  mysql-monolito:
+    image: mysql:8.0
+    container_name: chatbot-mysql-monolito
+    environment:
+      MYSQL_DATABASE: oficina_agua
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3307:3306"
+    volumes:
+      - ./db:/docker-entrypoint-initdb.d:ro
+      - mysql-monolito-data:/var/lib/mysql
+    # "Sano" solo cuando chatbot_ro ya puede leer por TCP. Un simple ping daría
+    # positivo mientras MySQL todavía está ejecutando los scripts iniciales.
+    healthcheck:
+      test: ["CMD", "mysql", "-h", "127.0.0.1", "-uchatbot_ro", "-pchatbot_ro", "-e", "SELECT 1 FROM oficina_agua.pajas LIMIT 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 30s
+
+  chatbot-service:
+    build: ./chatbot-service
+    container_name: chatbot-service
+    ports:
+      - "8082:8082"
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      VECTOR_DB_URL: jdbc:postgresql://postgres-vector:5432/chatbot
+      OLLAMA_BASE_URL: http://ollama:11434
+      # Dentro de Docker, el MySQL de prueba se llama mysql-monolito (puerto interno 3306)
+      MONOLITO_ENABLED: ${MONOLITO_ENABLED:-true}
+      MONOLITO_DB_URL: ${MONOLITO_DB_URL:-jdbc:mysql://mysql-monolito:3306/oficina_agua?allowPublicKeyRetrieval=true}
+    depends_on:
+      postgres-vector:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+      mysql-monolito:
+        condition: service_healthy
+
+  # Página pública + BFF (Next.js). Es el ÚNICO servicio que ve el navegador.
+  # La Feature 1 se integra en este mismo proyecto (ver web-publica/README.md).
+  web-publica:
+    build: ./web-publica
+    container_name: web-publica
+    ports:
+      - "3000:3000"
+    environment:
+      # Nombre del servicio dentro de la red de Docker, no "localhost"
+      CHATBOT_SERVICE_URL: http://chatbot-service:8082
+    depends_on:
+      - chatbot-service
+
+volumes:
+  pgvector-data:
+  ollama-data:
+  mysql-monolito-data:
