@@ -23,21 +23,25 @@ import org.springframework.stereotype.Component;
 @ConditionalOnProperty(name = "monolito.enabled", havingValue = "true")
 public class TarifasMonolitoReader implements FuenteMonolito {
 
-    static final String SQL = """
+     static final String SQL = """
             SELECT p.nombre,
                    p.equivalencia_m3,
-                   tv.monto_base,
-                   tv.precio_m3_excedente,
-                   tv.vigente_desde,
+                   t.monto_base,
+                   t.precio_m3_excedente,
+                   t.vigente_desde,
                    f.monto_base          AS prox_monto_base,
                    f.precio_m3_excedente AS prox_precio_m3_excedente,
                    f.vigente_desde       AS prox_vigente_desde
-              FROM tarifas_vigencia tv
-              JOIN pajas p ON p.id = tv.paja_id
-              LEFT JOIN tarifas f ON f.paja_id = tv.paja_id AND f.vigente_desde = tv.proxima_vigencia
+              FROM pajas p
+              JOIN tarifas t
+                ON t.paja_id = p.id
+               AND t.vigente_desde = (SELECT MAX(a.vigente_desde) FROM tarifas a
+                                       WHERE a.paja_id = p.id AND a.vigente_desde <= CURRENT_DATE)
+              LEFT JOIN tarifas f
+                ON f.paja_id = p.id
+               AND f.vigente_desde = (SELECT MIN(b.vigente_desde) FROM tarifas b
+                                       WHERE b.paja_id = p.id AND b.vigente_desde > CURRENT_DATE)
              WHERE p.activo = 1
-               AND tv.vigente_desde <= CURRENT_DATE
-               AND (tv.proxima_vigencia IS NULL OR tv.proxima_vigencia > CURRENT_DATE)
              ORDER BY p.equivalencia_m3 DESC
             """;
 

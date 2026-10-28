@@ -58,6 +58,8 @@ public class ChatService {
             6. Si el CONTEXTO trae varios fragmentos, basa tu respuesta en el que
                responde directamente la pregunta. No mezcles pasos de
                procedimientos distintos.
+            7. No menciones el CONTEXTO, los fragmentos ni sus números ([1], [2]...).
+               Responde como si la información fuera tuya.
             """;
 
     private final VectorStore vectorStore;
