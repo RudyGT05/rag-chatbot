@@ -76,7 +76,7 @@ public class RateLimitFilter extends OncePerRequestFilter {
         chain.doFilter(request, response);
     }
 
-    static String ipCliente(HttpServletRequest request) {
+    public static String ipCliente(HttpServletRequest request) {
         String xff = request.getHeader("X-Forwarded-For");
         if (xff != null && !xff.isBlank()) {
             // "cliente, proxy1, proxy2" → el primero es el usuario real

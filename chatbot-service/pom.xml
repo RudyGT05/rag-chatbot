@@ -12,26 +12,40 @@
         <relativePath/>
     </parent>
 
+    <!--
+      Este proyecto produce DOS jars en target/:
+        chatbot-rag-1.0.0.jar       → LIBRERÍA: la que otro proyecto agrega en su pom.xml
+        chatbot-rag-1.0.0-exec.jar  → APLICACIÓN: se ejecuta sola (java -jar), la usa el Dockerfile
+    -->
     <groupId>gt.edu.umg.desarrolloweb</groupId>
-    <artifactId>chatbot-service</artifactId>
+    <artifactId>chatbot-rag</artifactId>
     <version>1.0.0</version>
-    <name>chatbot-service</name>
-    <description>Feature 2 - Chatbot con RAG (Oficina del Agua, Fase 2)</description>
+    <name>chatbot-rag</name>
+    <description>Feature 2 - Chatbot con RAG (Oficina del Agua, Fase 2). Librería Spring Boot auto-configurable.</description>
 
     <properties>
         <java.version>17</java.version>
         <spring-ai.version>1.0.1</spring-ai.version>
+        <aws-sdk.version>2.30.11</aws-sdk.version>
         <springdoc.version>2.8.9</springdoc.version>
         <openapi-generator.version>7.14.0</openapi-generator.version>
     </properties>
 
-    <!-- El BOM de Spring AI fija versiones compatibles de todos sus módulos -->
     <dependencyManagement>
         <dependencies>
+            <!-- El BOM de Spring AI fija versiones compatibles de todos sus módulos -->
             <dependency>
                 <groupId>org.springframework.ai</groupId>
                 <artifactId>spring-ai-bom</artifactId>
                 <version>${spring-ai.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- Igual para el SDK de AWS (DynamoDB) -->
+            <dependency>
+                <groupId>software.amazon.awssdk</groupId>
+                <artifactId>bom</artifactId>
+                <version>${aws-sdk.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -48,29 +62,32 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
-        <!-- JdbcTemplate para leer el monolito en modo solo lectura -->
+        <!-- JdbcTemplate + HikariCP (pgvector y lectura del monolito) -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-jdbc</artifactId>
         </dependency>
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-actuator</artifactId>
-        </dependency>
 
-        <!-- Spring AI: proveedores de LLM/embeddings (se elige uno por configuración) -->
+        <!-- Spring AI: LLM y embeddings con Ollama -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-starter-model-ollama</artifactId>
         </dependency>
+        <!--
+          Spring AI: pgvector SIN su starter. El starter auto-configura el vector
+          store sobre el JdbcTemplate PRINCIPAL de la aplicación; dentro del proyecto
+          de otro equipo ese sería SU JdbcTemplate (su BD). Por eso lo creamos a mano
+          con nuestra propia conexión (ver BasesDeDatosConfig).
+        -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-model-openai</artifactId>
+            <artifactId>spring-ai-pgvector-store</artifactId>
         </dependency>
-        <!-- Spring AI: base vectorial en Postgres + pgvector -->
+
+        <!-- DynamoDB: historial de conversaciones -->
         <dependency>
-            <groupId>org.springframework.ai</groupId>
-            <artifactId>spring-ai-starter-vector-store-pgvector</artifactId>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>dynamodb</artifactId>
         </dependency>
 
         <!-- Drivers: Postgres (pgvector, BD propia) y MySQL (monolito, solo lectura) -->
@@ -85,7 +102,7 @@
             <scope>runtime</scope>
         </dependency>
 
-        <!-- Swagger UI + anotaciones que usa el código generado -->
+        <!-- Swagger UI (sirve nuestro contrato en /swagger-ui/index.html) -->
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
@@ -101,9 +118,19 @@
 
     <build>
         <plugins>
+            <!--
+              classifier=exec: el jar ejecutable (con Spring Boot adentro) sale como
+              *-exec.jar, y el jar NORMAL queda como artefacto principal. El jar normal
+              es el que sirve como dependencia: un jar ejecutable de Spring Boot NO se
+              puede usar como librería (sus clases van dentro de BOOT-INF/).
+            -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <classifier>exec</classifier>
+                    <mainClass>gt.edu.umg.desarrolloweb.chatbotapp.ChatbotApplication</mainClass>
+                </configuration>
             </plugin>
 
             <!-- Contract-first: del YAML a interfaces Java + DTOs (en target/, no se versiona) -->

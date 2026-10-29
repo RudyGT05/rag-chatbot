@@ -7,23 +7,31 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import org.springframework.ai.document.Document;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
+import gt.edu.umg.desarrolloweb.chatbot.config.ChatbotBasesDeDatos;
 import org.springframework.stereotype.Component;
 
 /**
- * Tarifas VIGENTES del monolito, usando su propia vista `tarifas_vigencia`
- * (migración 2026_09_04_000017). Reusar la vista del monolito garantiza que el
- * chatbot entiende la vigencia exactamente igual que el sistema que cobra.
+ * Tarifas VIGENTES del monolito.
+ *
+ * Aplica la MISMA regla que la vista `tarifas_vigencia` del monolito
+ * (migración 2026_09_04_000017), pero directo sobre la tabla `tarifas`:
+ *   - vigente = la de vigente_desde más reciente que ya empezó (<= hoy)
+ *   - próxima = la de vigente_desde más cercana en el futuro (> hoy)
+ *
+ * ¿Por qué no leer la vista? En la réplica real, el usuario de solo lectura
+ * puede leer las tablas pero NO la vista (error 1045): una vista se ejecuta con
+ * los permisos de su "definer", y en la réplica ese usuario no los tiene. Leer
+ * las tablas no depende de eso, y el monolito sigue sin tocarse.
  *
  * Genera un fragmento por paja activa + un fragmento de resumen.
  */
 @Component
-@ConditionalOnProperty(name = "monolito.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "chatbot.monolito.enabled", havingValue = "true")
 public class TarifasMonolitoReader implements FuenteMonolito {
 
-     static final String SQL = """
+    static final String SQL = """
             SELECT p.nombre,
                    p.equivalencia_m3,
                    t.monto_base,
@@ -48,9 +56,9 @@ public class TarifasMonolitoReader implements FuenteMonolito {
     private final JdbcTemplate monolito;
     private final CatalogoTarifas catalogo;
 
-    public TarifasMonolitoReader(@Qualifier("monolitoJdbcTemplate") JdbcTemplate monolito,
+    public TarifasMonolitoReader(ChatbotBasesDeDatos bd,
                                  CatalogoTarifas catalogo) {
-        this.monolito = monolito;
+        this.monolito = bd.monolito();
         this.catalogo = catalogo;
     }
 
@@ -74,13 +82,13 @@ public class TarifasMonolitoReader implements FuenteMonolito {
             docs.add(new Document(RedaccionMonolito.tarifa(t), Map.of(
                     "origen", ORIGEN,
                     "titulo", "Tarifa vigente — " + t.paja(),
-                    "tabla", "tarifas_vigencia")));
+                    "tabla", "tarifas")));
         }
         if (!filas.isEmpty()) {
             docs.add(new Document(RedaccionMonolito.resumenTarifas(filas), Map.of(
                     "origen", ORIGEN,
                     "titulo", "Tarifas vigentes — resumen",
-                    "tabla", "tarifas_vigencia")));
+                    "tabla", "tarifas")));
         }
         return docs;
     }

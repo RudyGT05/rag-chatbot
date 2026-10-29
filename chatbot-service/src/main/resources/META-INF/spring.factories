@@ -1,0 +1,2 @@
+org.springframework.boot.env.EnvironmentPostProcessor=\
+gt.edu.umg.desarrolloweb.chatbot.autoconfigure.ChatbotDefaultsEnvironmentPostProcessor

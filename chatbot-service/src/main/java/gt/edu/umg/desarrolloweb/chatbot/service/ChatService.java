@@ -1,6 +1,7 @@
 package gt.edu.umg.desarrolloweb.chatbot.service;
 
 import gt.edu.umg.desarrolloweb.chatbot.config.ChatbotProperties;
+import gt.edu.umg.desarrolloweb.chatbot.config.ChatbotVectorStore;
 import gt.edu.umg.desarrolloweb.chatbot.conocimiento.CalculadoraConsumo;
 import gt.edu.umg.desarrolloweb.chatbot.conocimiento.CatalogoTarifas;
 import gt.edu.umg.desarrolloweb.chatbot.conocimiento.RedaccionMonolito;
@@ -60,6 +61,8 @@ public class ChatService {
                procedimientos distintos.
             7. No menciones el CONTEXTO, los fragmentos ni sus números ([1], [2]...).
                Responde como si la información fuera tuya.
+            8. Nunca des un precio, monto o tipo de paja que no aparezca escrito
+               en el CONTEXTO. Si preguntan por uno que no está, di que no existe.
             """;
 
     private final VectorStore vectorStore;
@@ -68,22 +71,25 @@ public class ChatService {
     private final CatalogoTarifas catalogoTarifas;
 
     /** ChatClient.Builder lo crea Spring AI con el proveedor configurado (Ollama u OpenAI). */
-    public ChatService(VectorStore vectorStore, ChatClient.Builder chatClientBuilder,
+    public ChatService(ChatbotVectorStore chatbotVectorStore, ChatClient.Builder chatClientBuilder,
                        ChatbotProperties props, CatalogoTarifas catalogoTarifas) {
-        this.vectorStore = vectorStore;
+        this.vectorStore = chatbotVectorStore.store();
         this.chatClient = chatClientBuilder.defaultSystem(SYSTEM_PROMPT).build();
         this.props = props;
         this.catalogoTarifas = catalogoTarifas;
     }
 
-    public record Respuesta(String answer, List<Document> fuentes) {
+    /** Por qué camino se respondió: sirve para el historial y para explicar el flujo. */
+    public enum Tipo { PRIVACIDAD, CALCULO, SIN_INFORMACION, RAG }
+
+    public record Respuesta(String answer, List<Document> fuentes, Tipo tipo) {
     }
 
     public Respuesta responder(String pregunta) {
         // ---- 0. GUARDIA DE PRIVACIDAD (en código, no depende del LLM) ----
         if (DetectorConsultaCuenta.esConsultaDeCuenta(pregunta)) {
             log.info("Pregunta sobre una cuenta específica; se remite a la Consulta pública");
-            return new Respuesta(DetectorConsultaCuenta.RESPUESTA, List.of());
+            return new Respuesta(DetectorConsultaCuenta.RESPUESTA, List.of(), Tipo.PRIVACIDAD);
         }
 
         // ---- 0b. CÁLCULO EXACTO (en código: un LLM no sabe hacer cuentas) ----
@@ -96,14 +102,14 @@ public class ChatService {
                             "origen", "monolito",
                             "titulo", "Tarifa vigente — " + t.paja())))
                     .toList();
-            return new Respuesta(calculo.get().texto(), fuentes);
+            return new Respuesta(calculo.get().texto(), fuentes, Tipo.CALCULO);
         }
 
         // ---- 1. RETRIEVAL ----
         List<Document> fragmentos = buscarFragmentos(pregunta);
         if (fragmentos.isEmpty()) {
             log.info("Sin fragmentos relevantes para la pregunta; no se llama al LLM");
-            return new Respuesta(SIN_INFORMACION, List.of());
+            return new Respuesta(SIN_INFORMACION, List.of(), Tipo.SIN_INFORMACION);
         }
 
         // ---- 2. AUGMENTED ----
@@ -115,7 +121,7 @@ public class ChatService {
                     .user(prompt)
                     .call()
                     .content();
-            return new Respuesta(answer == null ? SIN_INFORMACION : answer.trim(), fragmentos);
+            return new Respuesta(answer == null ? SIN_INFORMACION : answer.trim(), fragmentos, Tipo.RAG);
         } catch (RuntimeException e) {
             throw new LlmNoDisponibleException("El LLM no respondió", e);
         }

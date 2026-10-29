@@ -21,8 +21,12 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
  *   JSON mal formado                        → 400 VALIDATION_ERROR
  *   LLM / embeddings caídos                 → 503 LLM_UNAVAILABLE
  *   Cualquier otra cosa                     → 500 INTERNAL_ERROR (detalle solo en el log)
+ *
+ * assignableTypes: SOLO atiende errores de los controllers del chatbot. Como
+ * librería vive dentro del proyecto de otro equipo; sin esta restricción
+ * atraparía también los errores de SUS controllers y les cambiaría el formato.
  */
-@RestControllerAdvice
+@RestControllerAdvice(assignableTypes = {ChatController.class, IngestaController.class})
 public class GlobalExceptionHandler {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalExceptionHandler.class);

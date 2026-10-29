@@ -52,17 +52,40 @@ class CalculadoraConsumoTest {
     void pajaNoVigenteLoDiceEnVezDeIgnorarla() {
         assertThat(CalculadoraConsumo.responder("tengo 2 pajas y gaste 100 m3", TARIFAS))
                 .hasValueSatisfying(r -> assertThat(r.texto())
-                        .startsWith("No encontré una tarifa vigente para ese tipo de paja")
-                        .contains("1 paja, 1/2 paja, 1/4 paja"));
+                        .startsWith("No hay una tarifa vigente para 2 pajas")
+                        .contains("1 paja (Q45.00 al mes, incluye 60 m³)"));
+    }
+
+    /** Caso real: el LLM inventó una tarifa para "1/3 de paja", que no existe. */
+    @ParameterizedTest
+    @ValueSource(strings = {"cuando vale 1/3 de paja?", "y la 1/3", "¿hay tres cuartos de paja?"})
+    void pajaQueNoExisteNuncaSeInventa(String pregunta) {
+        assertThat(CalculadoraConsumo.responder(pregunta, TARIFAS))
+                .hasValueSatisfying(r -> assertThat(r.texto()).startsWith("No hay una tarifa vigente para"));
+    }
+
+    @ParameterizedTest
+    @CsvSource(delimiter = '|', value = {
+            "¿Cuánto cuesta la media paja? | La tarifa vigente de 1/2 paja es de Q28.00",
+            "y la 1/2?                     | La tarifa vigente de 1/2 paja es de Q28.00",
+            "cuanto vale 1 paja            | La tarifa vigente de 1 paja es de Q45.00",
+            "y la 1/4?                     | La tarifa vigente de 1/4 paja es de Q17.00"
+    })
+    void precioDeUnaPajaSaleDelMonolito(String pregunta, String esperado) {
+        assertThat(CalculadoraConsumo.responder(pregunta, TARIFAS))
+                .hasValueSatisfying(r -> assertThat(r.texto()).startsWith(esperado));
     }
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "¿Cuánto cuesta la media paja?",
             "¿Qué hago si tengo una fuga?",
-            "¿Dónde puedo pagar?"
+            "¿Dónde puedo pagar?",
+            "¿Puedo cambiar la tarifa de mi contador de 1/2 paja a 1 paja?",
+            "¿Qué documentos necesito para solicitar media paja?",
+            "¿Las tarifas pueden cambiar?",
+            "¿Cómo se calcula el monto a pagar?"
     })
-    void sinCantidadNoInterviene(String pregunta) {
+    void preguntasQueNoSonDePrecioSiguenPorElRag(String pregunta) {
         assertThat(CalculadoraConsumo.responder(pregunta, TARIFAS)).isEmpty();
     }
 

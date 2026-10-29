@@ -1,5 +1,6 @@
 package gt.edu.umg.desarrolloweb.chatbot.service;
 
+import gt.edu.umg.desarrolloweb.chatbot.config.ChatbotVectorStore;
 import gt.edu.umg.desarrolloweb.chatbot.conocimiento.FaqLoader;
 import gt.edu.umg.desarrolloweb.chatbot.conocimiento.FuenteMonolito;
 import gt.edu.umg.desarrolloweb.chatbot.exception.LlmNoDisponibleException;
@@ -31,13 +32,15 @@ public class IngestaService {
 
     private static final Logger log = LoggerFactory.getLogger(IngestaService.class);
 
+    private final ChatbotVectorStore chatbotVectorStore;
     private final VectorStore vectorStore;
     private final FaqLoader faqLoader;
     private final List<FuenteMonolito> fuentesMonolito;   // vacía si monolito.enabled=false
 
-    public IngestaService(VectorStore vectorStore, FaqLoader faqLoader,
+    public IngestaService(ChatbotVectorStore chatbotVectorStore, FaqLoader faqLoader,
                           ObjectProvider<FuenteMonolito> fuentesMonolito) {
-        this.vectorStore = vectorStore;
+        this.chatbotVectorStore = chatbotVectorStore;
+        this.vectorStore = chatbotVectorStore.store();
         this.faqLoader = faqLoader;
         // ObjectProvider: si no hay ninguna fuente (monolito desactivado) da una lista vacía
         this.fuentesMonolito = fuentesMonolito.orderedStream().toList();
@@ -49,6 +52,7 @@ public class IngestaService {
     /** synchronized: evita dos ingestas a la vez (arranque + POST /ingest). */
     public synchronized Resultado reingestar() {
         long inicio = System.currentTimeMillis();
+        chatbotVectorStore.asegurarEsquema();   // crea la tabla de pgvector la primera vez
 
         int faq = reemplazar(FaqLoader.ORIGEN, cargarFaq());
 

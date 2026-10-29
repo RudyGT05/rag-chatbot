@@ -1,0 +1,57 @@
+# =============================================================================
+# Configuración del MODO APLICACIÓN (Docker / demo). Solo se carga con el perfil
+# "standalone", que activa ChatbotApplication. Cuando otro proyecto usa la
+# librería, este archivo NO se aplica (ese proyecto pone su propia config).
+#
+# Regla: ${VARIABLE:default}. La variable de entorno gana; el default es solo
+# para desarrollo local. Para cambiar de BD de prueba a la real solo se cambian
+# variables de entorno (.env), nunca el código.
+# =============================================================================
+server:
+  port: ${SERVER_PORT:8082}
+  error:
+    include-stacktrace: never      # nunca devolver el stack trace al cliente
+
+spring:
+  application:
+    name: chatbot-service
+  ai:
+    ollama:
+      base-url: ${OLLAMA_BASE_URL:http://localhost:11434}
+      chat:
+        options:
+          model: ${OLLAMA_CHAT_MODEL:qwen2.5:3b}
+      embedding:
+        options:
+          model: ${OLLAMA_EMBEDDING_MODEL:bge-m3}
+
+chatbot:
+  # BD PROPIA del chatbot: Postgres + pgvector (NO es la del monolito)
+  vector-db:
+    url: ${VECTOR_DB_URL:jdbc:postgresql://localhost:5433/chatbot}
+    username: ${VECTOR_DB_USERNAME:chatbot}
+    password: ${VECTOR_DB_PASSWORD:chatbot}
+
+  # BD del MONOLITO (MySQL) — solo lectura.
+  # Fuera de Docker (mvn spring-boot:run) el MySQL de prueba está en el puerto 3307.
+  monolito:
+    enabled: ${MONOLITO_ENABLED:true}
+    url: ${MONOLITO_DB_URL:jdbc:mysql://localhost:3307/oficina_agua?allowPublicKeyRetrieval=true}
+    username: ${MONOLITO_DB_USERNAME:chatbot_ro}
+    password: ${MONOLITO_DB_PASSWORD:chatbot_ro}
+
+  # Historial de conversaciones (DynamoDB Local en Docker)
+  historial:
+    enabled: ${HISTORIAL_ENABLED:true}
+    endpoint: ${DYNAMODB_ENDPOINT:http://localhost:8000}
+
+  rate-limit:
+    preguntas-por-minuto: ${RATE_LIMIT_POR_MINUTO:10}
+
+springdoc:
+  swagger-ui:
+    url: /openapi/chatbot-api.yaml   # Swagger UI muestra NUESTRO contrato, no uno inferido
+
+logging:
+  level:
+    gt.edu.umg.desarrolloweb.chatbot: INFO

@@ -153,7 +153,7 @@ en 5 objetos públicos**) y convierte cada fila en oraciones para el RAG:
 
 | Lector | Tabla del monolito | Fragmentos |
 |---|---|---|
-| `TarifasMonolitoReader` | vista `tarifas_vigencia` + `pajas` | 1 por paja activa + 1 resumen (incluye cambios programados) |
+| `TarifasMonolitoReader` | `tarifas` + `pajas` (misma regla que la vista `tarifas_vigencia`) | 1 por paja activa + 1 resumen (incluye cambios programados) |
 | `MetodosPagoMonolitoReader` | `metodos_pago` | 1 con las formas de pago activas |
 | `SectoresMonolitoReader` | `sectores` | 1 con los sectores con servicio |
 
@@ -178,47 +178,137 @@ Para la **BD real** solo cambian `MONOLITO_DB_URL`, `MONOLITO_DB_USERNAME` y
 4. Repetir la pregunta → **Q32.00**. El monolito no se modificó desde la Fase 2:
    el cambio se hizo "en el monolito" y el chatbot solo lo leyó.
 
-## 6. Cambiar a OpenAI (opcional)
+## 6. Historial de conversaciones (DynamoDB)
 
-En `.env`:
-```
-SPRING_PROFILES_ACTIVE=openai
-OPENAI_API_KEY=sk-...
-RECREAR_TABLA_VECTORIAL=true   # solo la primera vez (cambian las dimensiones 1024 → 1536)
-```
+Cada pregunta se guarda en **DynamoDB Local** (tabla `chatbot_conversaciones`):
+pregunta, respuesta, **tipo** (`RAG`, `CALCULO`, `PRIVACIDAD`, `SIN_INFORMACION`),
+fuentes, latencia, hash de la IP y fecha de expiración (TTL de 90 días).
+
+- **Verlo en el demo:** http://localhost:8001 (dynamodb-admin) → tabla `chatbot_conversaciones`.
+- Se guarda en **otro hilo**: el usuario no espera a DynamoDB, y si DynamoDB
+  está caído el chat sigue funcionando (solo queda un aviso en el log).
+- **Privacidad:** la IP no se guarda, solo un hash SHA-256 recortado.
+- Para apagarlo: `HISTORIAL_ENABLED=false` en `.env`.
 
 ---
 
-## 7. Estructura
+## 7. Usar el chatbot como LIBRERÍA en otro proyecto
+
+`mvn package` produce dos jars en `chatbot-service/target/`:
+
+| Jar | Para qué |
+|---|---|
+| `chatbot-rag-1.0.0.jar` | **Librería**: la que otro proyecto agrega en su `pom.xml` |
+| `chatbot-rag-1.0.0-exec.jar` | **Aplicación**: se ejecuta sola (`java -jar`). La usa el `Dockerfile` |
+
+### 7.1 Instalar la librería en el repositorio Maven local (`~/.m2`)
+
+Desde `chatbot-service/` (sin instalar Maven, con Docker):
+
+```powershell
+docker run --rm -v "${PWD}:/app" -v "$env:USERPROFILE\.m2:/root/.m2" -w /app maven:3.9-eclipse-temurin-17 mvn -q install -DskipTests
+```
+
+Con Maven instalado basta `mvn install -DskipTests`. Cada integrante que vaya a
+compilar el proyecto anfitrión debe hacer esto una vez (o cuando cambie la versión).
+
+### 7.2 Agregar la dependencia en el proyecto anfitrión
+
+```xml
+<dependency>
+    <groupId>gt.edu.umg.desarrolloweb</groupId>
+    <artifactId>chatbot-rag</artifactId>
+    <version>1.0.0</version>
+</dependency>
+```
+
+Requisitos del anfitrión: **Spring Boot 3.5 + Java 17** (Spring MVC, no WebFlux).
+
+**No hace falta `@ComponentScan` ni `@Import`**: la librería se auto-configura
+(`META-INF/spring/...AutoConfiguration.imports`). Expone `POST /api/v1/chat` y
+`POST /api/v1/ingest` dentro de la aplicación anfitriona.
+
+### 7.3 Configuración mínima en el `application.yml` del anfitrión
+
+Todo tiene valores por defecto (`chatbot-defaults.properties`); solo se cambia lo necesario:
+
+```yaml
+chatbot:
+  vector-db:                       # Postgres + pgvector del chatbot (NO la BD del anfitrión)
+    url: jdbc:postgresql://localhost:5433/chatbot
+    username: chatbot
+    password: chatbot
+  monolito:                        # réplica del monolito, solo lectura
+    enabled: true
+    url: jdbc:mysql://HOST:3306/aqua_gest?allowPublicKeyRetrieval=true
+    username: consultas_replica
+    password: ${MONOLITO_DB_PASSWORD}
+  historial:
+    enabled: true
+    endpoint: http://localhost:8000   # DynamoDB Local
+spring:
+  ai:
+    ollama:
+      base-url: http://localhost:11434
+```
+
+La infraestructura sigue haciendo falta: **Postgres+pgvector, Ollama y DynamoDB Local**.
+Se pueden levantar con este mismo compose:
+`docker compose up -d postgres-vector ollama dynamodb-local`.
+
+### 7.4 Diseño para convivir con el proyecto anfitrión
+
+| Riesgo al ser librería | Cómo se evitó |
+|---|---|
+| Un `DataSource` propio apagaría la auto-configuración de la BD del anfitrión | Las conexiones van encapsuladas en `ChatbotBasesDeDatos`; no se publica ningún `DataSource` ni `JdbcTemplate` |
+| El starter de pgvector usaría la BD del anfitrión | Se usa `spring-ai-pgvector-store` sin starter y el vector store se arma con la conexión propia |
+| El `@RestControllerAdvice` atraparía los errores de todo el anfitrión | `assignableTypes = {ChatController, IngestaController}` |
+| Un `application.yml` en el jar se mezclaría con el del anfitrión | La librería no trae `application.yml`: sus defaults tienen la prioridad más baja |
+| Postgres o el monolito caídos tumbarían el arranque del anfitrión | Pools perezosos y esquema de pgvector inicializado por la ingesta, con manejo de errores |
+| Choque de nombres de configuración | Todo bajo el prefijo `chatbot.` |
+
+Para apagar el chatbot sin quitar la dependencia: `chatbot.enabled=false`.
+
+> Si el proyecto anfitrión **no** usa base de datos propia, agregue
+> `spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration`
+> (la librería trae `spring-jdbc` y Spring Boot intentaría configurar una BD por defecto).
+
+## 8. Estructura
 
 ```
 feature2-chatbot/
-├── docker-compose.yml
+├── docker-compose.yml                    # pgvector, ollama, mysql de prueba, dynamodb, chatbot, web
 ├── .env.example
 ├── db/                                   # MySQL de prueba (estructura + seed + usuario RO) — ver db/README.md
-└── chatbot-service/
+├── web-publica/                          # Next.js: página pública + BFF + widget
+└── chatbot-service/                      # → chatbot-rag.jar (librería) + chatbot-rag-exec.jar (app)
     ├── Dockerfile
     ├── pom.xml
     └── src/main/
         ├── resources/
-        │   ├── application.yml           # toda la config, sobreescribible por variables
-        │   ├── application-openai.yml
+        │   ├── chatbot-defaults.properties   # defaults de la librería (prioridad más baja)
+        │   ├── application-standalone.yml    # solo modo aplicación (Docker)
+        │   ├── META-INF/                     # registro de la auto-configuración
         │   ├── static/openapi/chatbot-api.yaml   # EL CONTRATO
-        │   └── conocimiento/*.md         # FAQ = fuente 1 del RAG
-        └── java/gt/edu/umg/desarrolloweb/chatbot/
-            ├── ChatbotApplication.java
-            ├── config/                   # 2 datasources (pgvector + monolito RO), properties
-            ├── controller/               # implementan ChatApi / IngestaApi + errores
-            ├── service/                  # ChatService (RAG), IngestaService
-            ├── conocimiento/             # FaqLoader, TarifasMonolitoReader
-            ├── ratelimit/                # 429 por IP
-            └── exception/
+        │   └── conocimiento/*.md             # FAQ = fuente 1 del RAG
+        └── java/gt/edu/umg/desarrolloweb/
+            ├── chatbotapp/ChatbotApplication.java   # main del modo aplicación
+            └── chatbot/
+                ├── autoconfigure/        # ChatbotAutoConfiguration + defaults
+                ├── config/               # propiedades, conexiones encapsuladas, pgvector
+                ├── controller/           # implementan ChatApi / IngestaApi + errores
+                ├── service/              # ChatService (RAG), IngestaService, guardias
+                ├── conocimiento/         # FAQ, lectores del monolito, calculadora
+                ├── historial/            # DynamoDB
+                ├── ratelimit/            # 429 por IP
+                └── exception/
 ```
 
-## 8. Pendientes
+## 9. Pendientes
 
 - [x] Estructura real de la BD heredada → seed + lectores de tarifas, formas de pago y sectores
 - [x] Next.js BFF: `/api/chat` + widget en la página pública
 - [ ] Integrar la página de la Feature 1 en `web-publica`
-- [ ] (Opcional, está en el diagrama) guardar pregunta/respuesta en DynamoDB
+- [x] Historial de pregunta/respuesta en DynamoDB
+- [x] Empaquetado como librería Maven (`chatbot-rag`)
 - [ ] Integrar este compose al `docker-compose.yml` único del equipo

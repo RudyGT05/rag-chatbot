@@ -52,41 +52,135 @@ public final class CalculadoraConsumo {
     public record Respuesta(String texto, List<TarifaFila> tarifasUsadas) {
     }
 
+    /** Fracción suelta tipo "1/3", "3/4": casi siempre se refiere a un tipo de paja. */
+    private static final Pattern FRACCION = Pattern.compile("(?<![\\d/])([1-9]/[1-9])(?![\\d/])");
+    /** "2 pajas", "3 paja", "un tercio de paja": pajas que podrían no existir. */
+    private static final Pattern OTRA_PAJA =
+            Pattern.compile("\\b(\\d+ pajas?|tercio de paja|tres cuartos de paja)\\b");
+    /** Palabras que indican que preguntan un PRECIO. */
+    private static final Pattern PIDE_PRECIO = Pattern.compile(
+            "\\b(cuanto|cuanta|qto|cto|vale|valen|cuesta|cuestan|cobra|cobran|precio|precios"
+            + "|tarifa|tarifas|monto|costo|sale|pago|pagaria)\\b");
+    /** Preguntas de TRÁMITE que mencionan una paja pero no piden su precio ("¿puedo cambiar de 1/2 a 1 paja?"). */
+    private static final Pattern ES_TRAMITE = Pattern.compile(
+            "\\b(cambiar|cambio|solicit\\w*|tramit\\w*|requisit\\w*|document\\w*|instal\\w*|contratar)\\b");
+    /** Preguntas de seguimiento cortas: "y la 1/2?", "y la media paja". */
+    private static final int MAX_PALABRAS_SEGUIMIENTO = 5;
+
     /**
-     * Punto de entrada para el ChatService:
-     *  - paja + consumo  → cálculo exacto para esa paja
-     *  - solo consumo    → cálculo para CADA paja vigente ("depende de tu paja")
-     *  - sin consumo     → vacío: la pregunta sigue por el RAG normal
+     * Punto de entrada para el ChatService. Responde EN CÓDIGO todo lo que
+     * involucre precios, para que el LLM nunca invente ni calcule montos:
+     *
+     *  1. paja que NO existe ("1/3 de paja")  → lo dice y lista las vigentes
+     *  2. paja + consumo                      → cálculo exacto para esa paja
+     *  3. solo consumo                        → cálculo para CADA paja vigente
+     *  4. precio de una paja ("¿cuánto vale la media paja?", "y la 1/2?")
+     *                                         → tarifa vigente tal cual está en el monolito
+     *  5. cualquier otra cosa                 → vacío: sigue por el RAG normal
+     *
+     * Caso real que motivó el punto 1: a "¿cuánto vale 1/3 de paja?" el LLM inventó
+     * una tarifa (20 m³, Q38.20) y en la siguiente pregunta otra distinta (Q37.80).
      */
     public static Optional<Respuesta> responder(String pregunta, List<TarifaFila> tarifas) {
         if (tarifas.isEmpty()) {
             return Optional.empty();
         }
         String texto = normalizar(pregunta);
-        Optional<BigDecimal> consumo = buscarConsumo(texto);
-        if (consumo.isEmpty()) {
-            return Optional.empty();
-        }
         Optional<TarifaFila> tarifa = buscarPaja(texto, tarifas);
-        if (tarifa.isPresent()) {
-            return Optional.of(new Respuesta(redactar(calcular(tarifa.get(), consumo.get())),
-                    List.of(tarifa.get())));
+        Optional<BigDecimal> consumo = buscarConsumo(texto);
+
+        // 1. Mencionó una paja que no existe o no está vigente
+        if (tarifa.isEmpty()) {
+            Optional<String> desconocida = buscarPajaDesconocida(texto, tarifas);
+            if (desconocida.isPresent()) {
+                String texto1 = "No hay una tarifa vigente para " + desconocida.get()
+                        + ". Las tarifas vigentes son: " + listarTarifas(tarifas) + ".";
+                if (consumo.isPresent()) {
+                    texto1 += " Con un consumo de " + RedaccionMonolito.m3(consumo.get()) + " m³: "
+                            + porCadaPaja(consumo.get(), tarifas) + ".";
+                }
+                return Optional.of(new Respuesta(texto1, tarifas));
+            }
         }
-        String m3 = RedaccionMonolito.m3(consumo.get());
-        String porPaja = tarifas.stream()
-                .map(t -> "con " + t.paja() + " pagas " + RedaccionMonolito.q(calcular(t, consumo.get()).total()))
+
+        // 2. y 3. Hay una cantidad de m³: se calcula
+        if (consumo.isPresent()) {
+            if (tarifa.isPresent()) {
+                return Optional.of(new Respuesta(redactar(calcular(tarifa.get(), consumo.get())),
+                        List.of(tarifa.get())));
+            }
+            return Optional.of(new Respuesta(
+                    "Depende de la paja que tenga contratada tu contador. Con un consumo de "
+                            + RedaccionMonolito.m3(consumo.get()) + " m³: " + porCadaPaja(consumo.get(), tarifas)
+                            + ". Si me dices tu tipo de paja te explico el cálculo.",
+                    tarifas));
+        }
+
+        // 4. Pregunta el precio de una paja conocida
+        boolean pidePrecio = PIDE_PRECIO.matcher(texto).find() && !ES_TRAMITE.matcher(texto).find();
+        if (tarifa.isPresent() && (pidePrecio || esSeguimientoCorto(texto))) {
+            return Optional.of(new Respuesta(describir(tarifa.get()), List.of(tarifa.get())));
+        }
+
+        // 5. No es de precios: que responda el RAG
+        return Optional.empty();
+    }
+
+    /** Tarifa vigente de una paja, tal cual está en el monolito. */
+    public static String describir(TarifaFila t) {
+        String texto = "La tarifa vigente de " + t.paja() + " es de " + RedaccionMonolito.q(t.montoBase())
+                + " al mes e incluye hasta " + RedaccionMonolito.m3(t.equivalenciaM3()) + " m³ de consumo."
+                + " Cada metro cúbico adicional se cobra a " + RedaccionMonolito.q(t.precioExcedente())
+                + " (vigente desde el " + FECHA.format(t.vigenteDesde()) + ").";
+        if (t.proxDesde() != null && t.proxMontoBase() != null) {
+            texto += " A partir del " + FECHA.format(t.proxDesde()) + " el monto base será de "
+                    + RedaccionMonolito.q(t.proxMontoBase()) + ".";
+        }
+        return texto;
+    }
+
+    private static String listarTarifas(List<TarifaFila> tarifas) {
+        return tarifas.stream()
+                .map(t -> t.paja() + " (" + RedaccionMonolito.q(t.montoBase()) + " al mes, incluye "
+                        + RedaccionMonolito.m3(t.equivalenciaM3()) + " m³)")
                 .reduce((a, b) -> a + "; " + b)
                 .orElse("");
-        // Mencionó una paja que no está vigente (p. ej. una descontinuada): decírselo,
-        // no hacer como si no la hubiera nombrado.
-        String inicio = texto.contains("paja")
-                ? "No encontré una tarifa vigente para ese tipo de paja. Las pajas vigentes"
-                  + " son " + tarifas.stream().map(TarifaFila::paja).reduce((a, b) -> a + ", " + b).orElse("")
-                  + ". Con un consumo de " + m3 + " m³: "
-                : "Depende de la paja que tenga contratada tu contador. Con un consumo de " + m3 + " m³: ";
-        return Optional.of(new Respuesta(
-                inicio + porPaja + ". Si me dices tu tipo de paja te explico el cálculo.",
-                tarifas));
+    }
+
+    private static String porCadaPaja(BigDecimal consumo, List<TarifaFila> tarifas) {
+        return tarifas.stream()
+                .map(t -> "con " + t.paja() + " pagas " + RedaccionMonolito.q(calcular(t, consumo).total()))
+                .reduce((a, b) -> a + "; " + b)
+                .orElse("");
+    }
+
+    private static boolean esSeguimientoCorto(String texto) {
+        return texto.replaceAll("[^a-z0-9/ ]", " ").trim().split("\\s+").length <= MAX_PALABRAS_SEGUIMIENTO;
+    }
+
+    /**
+     * Devuelve cómo se nombró una paja que NO está entre las vigentes:
+     * "1/3", "2 pajas", "tercio de paja"… Vacío si no mencionó ninguna.
+     */
+    static Optional<String> buscarPajaDesconocida(String texto, List<TarifaFila> tarifas) {
+        List<String> conocidas = tarifas.stream().map(t -> normalizar(t.paja())).toList();
+        Matcher f = FRACCION.matcher(texto);
+        while (f.find()) {
+            String fraccion = f.group(1);
+            boolean existe = conocidas.stream().anyMatch(n -> n.startsWith(fraccion + " "));
+            if (!existe) {
+                return Optional.of(fraccion + " de paja");
+            }
+        }
+        Matcher o = OTRA_PAJA.matcher(texto);
+        while (o.find()) {
+            String mencion = o.group(1);
+            String singular = mencion.replaceAll("pajas$", "paja");
+            if (!conocidas.contains(singular)) {
+                return Optional.of(mencion);
+            }
+        }
+        return Optional.empty();
     }
 
     /** Si la pregunta trae una paja conocida y una cantidad de m³, calcula; si no, vacío. */
@@ -155,9 +249,12 @@ public final class CalculadoraConsumo {
             if (nombre.startsWith("1/2")) {
                 alias.add(new Alias("media paja", t));
                 alias.add(new Alias("medio paja", t));
+                alias.add(new Alias("1/2 de paja", t));
+                alias.add(new Alias("1/2", t));          // "y la 1/2?"
             } else if (nombre.startsWith("1/4")) {
                 alias.add(new Alias("cuarto de paja", t));
                 alias.add(new Alias("1/4 de paja", t));
+                alias.add(new Alias("1/4", t));
             } else if (nombre.equals("1 paja")) {
                 alias.add(new Alias("una paja", t));
                 alias.add(new Alias("paja completa", t));

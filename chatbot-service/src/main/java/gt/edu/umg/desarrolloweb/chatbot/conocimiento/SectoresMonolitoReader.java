@@ -4,14 +4,14 @@ import gt.edu.umg.desarrolloweb.chatbot.conocimiento.RedaccionMonolito.SectorFil
 import java.util.List;
 import java.util.Map;
 import org.springframework.ai.document.Document;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.jdbc.core.JdbcTemplate;
+import gt.edu.umg.desarrolloweb.chatbot.config.ChatbotBasesDeDatos;
 import org.springframework.stereotype.Component;
 
 /** Sectores ACTIVOS (zonas con servicio) de la tabla `sectores` del monolito. */
 @Component
-@ConditionalOnProperty(name = "monolito.enabled", havingValue = "true")
+@ConditionalOnProperty(name = "chatbot.monolito.enabled", havingValue = "true")
 public class SectoresMonolitoReader implements FuenteMonolito {
 
     static final String SQL = """
@@ -23,8 +23,8 @@ public class SectoresMonolitoReader implements FuenteMonolito {
 
     private final JdbcTemplate monolito;
 
-    public SectoresMonolitoReader(@Qualifier("monolitoJdbcTemplate") JdbcTemplate monolito) {
-        this.monolito = monolito;
+    public SectoresMonolitoReader(ChatbotBasesDeDatos bd) {
+        this.monolito = bd.monolito();
     }
 
     @Override

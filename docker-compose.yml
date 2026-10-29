@@ -73,6 +73,9 @@ services:
       # Dentro de Docker, el MySQL de prueba se llama mysql-monolito (puerto interno 3306)
       MONOLITO_ENABLED: ${MONOLITO_ENABLED:-true}
       MONOLITO_DB_URL: ${MONOLITO_DB_URL:-jdbc:mysql://mysql-monolito:3306/oficina_agua?allowPublicKeyRetrieval=true}
+      # Historial de conversaciones
+      HISTORIAL_ENABLED: ${HISTORIAL_ENABLED:-true}
+      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
     depends_on:
       postgres-vector:
         condition: service_healthy
@@ -80,6 +83,36 @@ services:
         condition: service_started
       mysql-monolito:
         condition: service_healthy
+      dynamodb-local:
+        condition: service_started
+
+  # DynamoDB LOCAL: el historial de conversaciones (NoSQL), 100% en tu PC.
+  # La Feature 4 también usa DynamoDB Local: en el compose único del equipo
+  # pueden compartir este mismo contenedor (cada feature con su propia tabla).
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: chatbot-dynamodb
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
+    working_dir: /home/dynamodblocal
+    user: root                       # para poder escribir en el volumen
+    ports:
+      - "8000:8000"
+    volumes:
+      - dynamodb-data:/home/dynamodblocal/data
+
+  # Interfaz web para VER el historial: http://localhost:8001 (útil en el demo)
+  dynamodb-admin:
+    image: aaronshaf/dynamodb-admin:latest
+    container_name: chatbot-dynamodb-admin
+    ports:
+      - "8001:8001"
+    environment:
+      DYNAMO_ENDPOINT: http://dynamodb-local:8000
+      AWS_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: local
+      AWS_SECRET_ACCESS_KEY: local
+    depends_on:
+      - dynamodb-local
 
   # Página pública + BFF (Next.js). Es el ÚNICO servicio que ve el navegador.
   # La Feature 1 se integra en este mismo proyecto (ver web-publica/README.md).
@@ -98,3 +131,4 @@ volumes:
   pgvector-data:
   ollama-data:
   mysql-monolito-data:
+  dynamodb-data:
