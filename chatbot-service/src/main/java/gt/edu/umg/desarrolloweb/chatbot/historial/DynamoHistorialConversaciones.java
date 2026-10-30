@@ -116,7 +116,17 @@ public class DynamoHistorialConversaciones implements HistorialConversaciones, D
             item.put("ipHash", s(hash(c.ipCliente())));
             item.put("expiraEn", n(ahora.plus(diasRetencion, ChronoUnit.DAYS).getEpochSecond()));
 
-            dynamo.putItem(PutItemRequest.builder().tableName(tabla).item(item).build());
+            PutItemRequest put = PutItemRequest.builder().tableName(tabla).item(item).build();
+            try {
+                dynamo.putItem(put);
+            } catch (ResourceNotFoundException tablaBorrada) {
+                // "tablaLista" quedó en true, pero alguien borró la tabla después
+                // (por ejemplo desde dynamodb-admin): se vuelve a crear y se reintenta una vez.
+                log.info("La tabla '{}' ya no existe; se vuelve a crear", tabla);
+                tablaLista = false;
+                asegurarTabla();
+                dynamo.putItem(put);
+            }
         } catch (RuntimeException e) {
             log.warn("No se pudo guardar la conversación en DynamoDB: {}", e.getMessage());
         }
