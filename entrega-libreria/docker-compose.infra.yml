@@ -1,0 +1,48 @@
+# =============================================================================
+# Infraestructura que necesita la librería chatbot-rag (sin el chatbot en sí:
+# el chatbot corre DENTRO de tu aplicación Spring Boot).
+#
+#   docker compose -f docker-compose.infra.yml up -d
+#
+# La primera vez Ollama descarga los modelos (~3 GB); tu app espera a que terminen.
+# =============================================================================
+services:
+
+  # BD vectorial propia del chatbot (NO es la BD de tu proyecto)
+  postgres-vector:
+    image: pgvector/pgvector:pg16
+    container_name: chatbot-postgres-vector
+    environment:
+      POSTGRES_DB: chatbot
+      POSTGRES_USER: chatbot
+      POSTGRES_PASSWORD: chatbot
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgvector-data:/var/lib/postgresql/data
+
+  # LLM (qwen2.5:3b) y embeddings (bge-m3) locales
+  ollama:
+    image: ollama/ollama:0.9.6
+    container_name: chatbot-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+  # Historial de conversaciones (opcional: chatbot.historial.enabled=true)
+  dynamodb-local:
+    image: amazon/dynamodb-local:latest
+    container_name: chatbot-dynamodb
+    command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-dbPath", "/home/dynamodblocal/data"]
+    working_dir: /home/dynamodblocal
+    user: root
+    ports:
+      - "8000:8000"
+    volumes:
+      - dynamodb-data:/home/dynamodblocal/data
+
+volumes:
+  pgvector-data:
+  ollama-data:
+  dynamodb-data:

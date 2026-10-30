@@ -120,7 +120,8 @@ export default function ChatWidget() {
   const muyCorta = texto.trim().length > 0 && texto.trim().length < 3;
 
   return (
-    <>
+    // .raiz define sus propios colores: el widget se ve igual en cualquier proyecto Next.js
+    <div className={styles.raiz}>
       {abierto && (
         <section className={styles.panel} role="dialog" aria-label="Asistente virtual de la Oficina del Agua">
           <header className={styles.cabecera}>
@@ -214,6 +215,6 @@ export default function ChatWidget() {
           </svg>
         )}
       </button>
-    </>
+    </div>
   );
 }

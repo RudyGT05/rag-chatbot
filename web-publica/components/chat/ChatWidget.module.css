@@ -1,3 +1,23 @@
+/* ---------- Colores propios del widget ----------
+   Se definen aquí (y no solo en globals.css) para que el widget funcione igual
+   al copiarlo a otro proyecto Next.js. display: contents → no afecta el layout. */
+.raiz {
+  display: contents;
+  --agua-900: #06283d;
+  --agua-700: #0b4f6c;
+  --agua-500: #1479a3;
+  --agua-300: #7cc4e0;
+  --agua-100: #e3f2f8;
+  --arena-50: #f7f6f2;
+  --tinta: #13232e;
+  --tinta-suave: #4a5b66;
+  --borde: #d6e2e8;
+  --blanco: #ffffff;
+  --peligro: #b3261e;
+  --sombra: 0 12px 32px rgba(6, 40, 61, 0.14);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
 /* ---------- Botón flotante ---------- */
 .lanzador {
   position: fixed;
