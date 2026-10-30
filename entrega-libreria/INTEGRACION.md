@@ -114,6 +114,7 @@ Límite: 10 preguntas por minuto por IP (`chatbot.rate-limit.preguntas-por-minut
 | Tu proyecto **no** usa base de datos y falla al arrancar pidiendo una URL | `spring.autoconfigure.exclude: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration` |
 | Ya usas el puerto 5433, 11434 u 8000 | Cambia el puerto en el compose y en `chatbot.vector-db.url`, `spring.ai.ollama.base-url` o `chatbot.historial.endpoint` |
 | Tu proyecto ya usa Spring AI con otro modelo | Avísale a Rudy: hay que revisar qué `ChatClient` se usa |
+| Tu clase `main` está **directamente** en `gt.edu.umg.desarrolloweb` (no en un subpaquete) | Funciona, pero tu escaneo también encuentra las clases del chatbot y `chatbot.enabled: false` deja de apagarlo. Lo normal es tener el main en un subpaquete, ej. `gt.edu.umg.desarrolloweb.consulta` |
 
 La librería **no** toca la base de datos de tu proyecto: usa conexiones propias,
 y la del monolito es de solo lectura.

@@ -40,7 +40,11 @@ foreach ($f in @("components\chat\ChatWidget.tsx", "components\chat\ChatWidget.m
 Write-Host "3/3 Comprimiendo..."
 $zip = Join-Path $servicio "target\chatbot-rag-$version.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
-Compress-Archive -Path (Join-Path $carpeta "*") -DestinationPath $zip
+# tar.exe (incluido en Windows 10+) en vez de Compress-Archive: Compress-Archive de
+# PowerShell 5.1 guarda las rutas con "\" y en Mac/Linux salen nombres raros.
+$contenido = (Get-ChildItem $carpeta).Name
+tar.exe -a -c -f $zip -C $carpeta @contenido
+if ($LASTEXITCODE -ne 0) { throw "Fallo al comprimir" }
 
 Write-Host ""
 Write-Host "Listo: $zip"

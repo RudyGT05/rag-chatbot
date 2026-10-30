@@ -129,7 +129,7 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <classifier>exec</classifier>
-                    <mainClass>gt.edu.umg.desarrolloweb.chatbotapp.ChatbotApplication</mainClass>
+                    <mainClass>chatbotrag.standalone.ChatbotApplication</mainClass>
                 </configuration>
             </plugin>
 

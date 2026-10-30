@@ -1,6 +1,6 @@
 # =============================================================================
 # Configuración del MODO APLICACIÓN (Docker / demo). Solo se carga con el perfil
-# "standalone", que activa ChatbotApplication. Cuando otro proyecto usa la
+# "chatbot-standalone", que activa ChatbotApplication. Cuando otro proyecto usa la
 # librería, este archivo NO se aplica (ese proyecto pone su propia config).
 #
 # Regla: ${VARIABLE:default}. La variable de entorno gana; el default es solo

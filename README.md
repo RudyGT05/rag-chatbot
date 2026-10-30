@@ -287,13 +287,14 @@ feature2-chatbot/
     └── src/main/
         ├── resources/
         │   ├── chatbot-defaults.properties   # defaults de la librería (prioridad más baja)
-        │   ├── application-standalone.yml    # solo modo aplicación (Docker)
+        │   ├── application-chatbot-standalone.yml  # solo modo aplicación (Docker)
         │   ├── META-INF/                     # registro de la auto-configuración
         │   ├── static/openapi/chatbot-api.yaml   # EL CONTRATO
         │   └── conocimiento/*.md             # FAQ = fuente 1 del RAG
-        └── java/gt/edu/umg/desarrolloweb/
-            ├── chatbotapp/ChatbotApplication.java   # main del modo aplicación
-            └── chatbot/
+        └── java/
+            ├── chatbotrag/standalone/ChatbotApplication.java  # main del modo aplicación (fuera
+            │                                    #   de gt.edu.umg... para que el anfitrión no la escanee)
+            └── gt/edu/umg/desarrolloweb/chatbot/
                 ├── autoconfigure/        # ChatbotAutoConfiguration + defaults
                 ├── config/               # propiedades, conexiones encapsuladas, pgvector
                 ├── controller/           # implementan ChatApi / IngestaApi + errores

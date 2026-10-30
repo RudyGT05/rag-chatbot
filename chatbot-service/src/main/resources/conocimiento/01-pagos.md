@@ -1,7 +1,7 @@
 # Pagos
 
 ## ¿Dónde puedo pagar mi recibo de agua?
-Puedes pagar en la ventanilla de la Oficina del Agua, en horario de atención. Lleva el código de tu contador o tu último recibo para que el secretario encuentre tu cuenta rápidamente. Al pagar recibes una boleta impresa como comprobante.
+Puedes pagar en la ventanilla de la Oficina del Agua, de lunes a viernes de 8:00 a 16:00 horas y los sábados de 8:00 a 12:00 horas. Lleva el código de tu contador o tu último recibo para que el secretario encuentre tu cuenta rápidamente. Al pagar recibes una boleta impresa como comprobante.
 
 ## ¿Qué formas de pago aceptan?
 En ventanilla se acepta pago en efectivo, con tarjeta de débito o crédito y con depósito bancario. Si pagas por depósito, presenta la boleta del banco en la oficina para que el pago quede aplicado a tu cuenta.
