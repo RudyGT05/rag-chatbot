@@ -80,7 +80,7 @@ public class ChatService {
     }
 
     /** Por qué camino se respondió: sirve para el historial y para explicar el flujo. */
-    public enum Tipo { PRIVACIDAD, CALCULO, SIN_INFORMACION, RAG }
+    public enum Tipo { PRIVACIDAD, CHARLA, CALCULO, SIN_INFORMACION, RAG }
 
     public record Respuesta(String answer, List<Document> fuentes, Tipo tipo) {
     }
@@ -90,6 +90,12 @@ public class ChatService {
         if (DetectorConsultaCuenta.esConsultaDeCuenta(pregunta)) {
             log.info("Pregunta sobre una cuenta específica; se remite a la Consulta pública");
             return new Respuesta(DetectorConsultaCuenta.RESPUESTA, List.of(), Tipo.PRIVACIDAD);
+        }
+
+        // ---- 0a. SALUDOS Y CORTESÍA (en código: "Hola!" no trae tema que buscar) ----
+        Optional<String> charla = DetectorCharla.responder(pregunta);
+        if (charla.isPresent()) {
+            return new Respuesta(charla.get(), List.of(), Tipo.CHARLA);
         }
 
         // ---- 0b. CÁLCULO EXACTO (en código: un LLM no sabe hacer cuentas) ----
