@@ -114,6 +114,10 @@ Límite: 10 preguntas por minuto por IP (`chatbot.rate-limit.preguntas-por-minut
 | Tu proyecto **no** usa base de datos y falla al arrancar pidiendo una URL | `spring.autoconfigure.exclude: org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration` |
 | Ya usas el puerto 5433, 11434 u 8000 | Cambia el puerto en el compose y en `chatbot.vector-db.url`, `spring.ai.ollama.base-url` o `chatbot.historial.endpoint` |
 | Tu proyecto ya usa Spring AI con otro modelo | Avísale a Rudy: hay que revisar qué `ChatClient` se usa |
+| Usas **Spring Security**: `/api/v1/chat` responde 401 o 403 | Permite esas rutas sin login y sin CSRF (las llama el BFF de Next.js, no un usuario con sesión): `http.authorizeHttpRequests(a -> a.requestMatchers("/api/v1/chat").permitAll())` y `http.csrf(c -> c.ignoringRequestMatchers("/api/v1/chat"))`. `/api/v1/ingest` **no** la abras al público: déjala solo para administradores |
+| Usas `server.servlet.context-path` (ej. `/api`) | Las rutas quedan en `/api/api/v1/chat` y el límite de 10 preguntas por minuto deja de aplicarse. Mejor sin context-path; si no puedes, avísale a Rudy |
+| Ya usas **springdoc** (Swagger) | La librería trae springdoc 2.8.9. Si tu versión es otra, deja la tuya en tu `pom.xml`; Maven usa la del proyecto |
+| La primera vez la app tarda mucho en arrancar | Está descargando los modelos de Ollama (~3 GB, hasta 20 min). Solo pasa una vez: quedan guardados en el volumen `ollama-data` |
 | Tu clase `main` está **directamente** en `gt.edu.umg.desarrolloweb` (no en un subpaquete) | Funciona, pero tu escaneo también encuentra las clases del chatbot y `chatbot.enabled: false` deja de apagarlo. Lo normal es tener el main en un subpaquete, ej. `gt.edu.umg.desarrolloweb.consulta` |
 
 La librería **no** toca la base de datos de tu proyecto: usa conexiones propias,
