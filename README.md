@@ -1,5 +1,5 @@
-Nombre: ESCRIBE_TU_NOMBRE_COMPLETO
-Carnet: ESCRIBE_TU_CARNET
+Nombre: Rudy Geovany González Arana
+Carnet: 0905-23-6867
 Repositorio: https://github.com/RudyGT05/rag-chatbot
 Modulo asignado: Chatbot con RAG
 
