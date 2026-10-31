@@ -1,0 +1,18 @@
+# =============================================================================
+# Modo DEPURACIÓN: permite poner breakpoints desde VS Code en el chatbot que
+# corre dentro de Docker. Se suma al docker-compose.yml normal:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.debug.yml up -d chatbot-service
+#
+# Para volver al modo normal:  docker compose up -d chatbot-service
+#
+# JDWP (Java Debug Wire Protocol) abre el puerto 5005 para que el depurador
+# de VS Code se conecte a la JVM. suspend=n: arranca sin esperar al depurador.
+# Solo para tu PC: nunca en un servidor público.
+# =============================================================================
+services:
+  chatbot-service:
+    environment:
+      JAVA_TOOL_OPTIONS: "-agentlib:jdwp=transport=dt_socket,server=y,suspend=n,address=*:5005"
+    ports:
+      - "127.0.0.1:5005:5005"   # solo accesible desde tu PC

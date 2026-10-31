@@ -1,0 +1,53 @@
+digraph arquitectura {
+  graph [rankdir=LR, fontname="Arial", fontsize=13, nodesep=0.45, ranksep=0.9, pad=0.35, bgcolor="white",
+         label=<<b>Feature 2 · Chatbot con RAG — Oficina del Agua, Fase 2</b>>, labelloc=t, fontsize=20];
+  node  [fontname="Arial", fontsize=12, shape=box, style="rounded,filled", fillcolor="#e3f2f8", color="#1479a3", penwidth=1.3, margin="0.18,0.10"];
+  edge  [fontname="Arial", fontsize=12, color="#4a5b66", fontcolor="#0b4f6c", penwidth=1.2, arrowsize=0.8];
+
+  usuario [label="Ciudadano\n(navegador)", shape=oval, fillcolor="#fff5d6", color="#c9a227"];
+
+  subgraph cluster_web {
+    label=<<b>web-publica</b><br/>Next.js 16 · puerto 3000>; style="rounded"; color="#9fb7c4"; fontsize=13;
+    pagina [label="Página pública\n+ widget del chat"];
+    bff    [label="BFF  /api/chat\n(corre en el servidor)"];
+    consulta [label="/consulta\nreservada para Feature 1", style="rounded,dashed", fillcolor="white", color="#999999", fontcolor="#666666"];
+  }
+
+  subgraph cluster_svc {
+    label=<<b>chatbot-service</b><br/>Spring Boot 3.5 + Spring AI · puerto 8082>; style="rounded"; color="#9fb7c4"; fontsize=13;
+    ctrl    [label="ChatController\ncontrato OpenAPI\nrate limit por IP"];
+    chat    [label="ChatService\n1. privacidad  2. saludos\n3. cálculo de tarifas\n4. búsqueda + LLM"];
+    ingesta [label="IngestaService\nFAQ + monolito\n→ embeddings"];
+  }
+
+  subgraph cluster_datos {
+    label=<<b>Bases de datos y modelos</b><br/>contenedores Docker>; style="rounded"; color="#9fb7c4"; fontsize=13;
+    node [fillcolor="#f7f6f2", color="#4a5b66"];
+    pg     [label="PostgreSQL 16 + pgvector\nconocimiento_vectorial\n(BD nueva del chatbot)", shape=cylinder];
+    ollama [label="Ollama\nqwen2.5:3b  → LLM\nbge-m3  → embeddings"];
+    dynamo [label="DynamoDB Local\nchatbot_conversaciones\n(historial NoSQL)", shape=cylinder];
+    admin  [label="dynamodb-admin\npuerto 8001"];
+  }
+
+  subgraph cluster_mono {
+    label=<<b>Monolito heredado</b><br/>NO se modifica>; style="rounded"; color="#d9928c"; fontsize=13;
+    node [fillcolor="#fdecea", color="#b3261e"];
+    laravel [label="Aplicación Laravel\nOficina del Agua"];
+    mysql   [label="MySQL del monolito\ntarifas · pajas\nmetodos_pago · sectores", shape=cylinder];
+  }
+
+  usuario -> pagina  [label=" 1 "];
+  pagina  -> bff     [label=" 2 "];
+  bff     -> ctrl    [label=" 3 "];
+  ctrl    -> chat;
+  chat    -> pg      [label=" 4 "];
+  chat    -> ollama  [label=" 5 "];
+  chat    -> dynamo  [label=" 6 ", style=dashed];
+  ingesta -> mysql   [label=" 7 "];
+  ingesta -> ollama  [label=" 8 "];
+  ingesta -> pg      [label=" 9 "];
+  laravel -> mysql   [label=" 10 ", color="#b3261e", fontcolor="#b3261e"];
+  admin   -> dynamo  [label=" 11 ", style=dotted];
+
+  ctrl -> ingesta [style=invis];
+}

@@ -35,6 +35,8 @@ import software.amazon.awssdk.services.dynamodb.model.KeyType;
 import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.ResourceInUseException;
 import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException;
+import software.amazon.awssdk.services.dynamodb.model.TimeToLiveSpecification;
+import software.amazon.awssdk.services.dynamodb.model.UpdateTimeToLiveRequest;
 import software.amazon.awssdk.services.dynamodb.model.ScalarAttributeType;
 
 /**
@@ -149,12 +151,29 @@ public class DynamoHistorialConversaciones implements HistorialConversaciones, D
                         .billingMode(BillingMode.PAY_PER_REQUEST)
                         .build());
                 dynamo.waiter().waitUntilTableExists(r -> r.tableName(tabla));
+                activarExpiracion();
                 log.info("Tabla DynamoDB '{}' creada", tabla);
             } catch (ResourceInUseException otraInstanciaLaCreo) {
                 // Otra instancia la creó al mismo tiempo: no pasa nada
             }
         }
         tablaLista = true;
+    }
+
+    /**
+     * Declara "expiraEn" como atributo TTL: DynamoDB borra sola cada conversación
+     * cuando llega esa fecha (90 días). Si falla, el historial sigue funcionando.
+     */
+    private void activarExpiracion() {
+        try {
+            dynamo.updateTimeToLive(UpdateTimeToLiveRequest.builder()
+                    .tableName(tabla)
+                    .timeToLiveSpecification(TimeToLiveSpecification.builder()
+                            .attributeName("expiraEn").enabled(true).build())
+                    .build());
+        } catch (RuntimeException e) {
+            log.warn("No se pudo activar la expiración (TTL) de '{}': {}", tabla, e.getMessage());
+        }
     }
 
     private static AttributeValue s(String valor) {
